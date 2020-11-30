@@ -15,6 +15,7 @@ package org.flowable.cmmn.rest.service.api.runtime;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -213,18 +214,16 @@ public class CaseInstanceCollectionResourceTest extends BaseSpringRestTestCase {
         rootNode = objectMapper.readTree(response.getEntity().getContent());
         closeResponse(response);
         assertThat(rootNode).isNotEmpty();
-        assertThat(rootNode.get("data")).hasSize(1);
-        dataNode = rootNode.get("data").get(0);
-        variableNodes = dataNode.get("variables");
-        assertThat(variableNodes).hasSize(1);
-
-        variableNodes = dataNode.get("variables");
-        assertThatJson(variableNodes)
+        assertThatJson(rootNode)
                 .when(Option.IGNORING_EXTRA_FIELDS)
-                .isEqualTo("[ {"
-                        + " name: 'someVar',"
-                        + " value: 'someValue'"
-                        + "} ]");
+                .isEqualTo("{"
+                        + "data: [ {"
+                        + "         variables: [ {"
+                        + "                    name: 'someVar',"
+                        + "                    value: 'someValue'"
+                        + "                    } ]"
+                        + "      } ]"
+                        + "}");
     }
 
     /**
@@ -382,15 +381,17 @@ public class CaseInstanceCollectionResourceTest extends BaseSpringRestTestCase {
 
         // Check if engine has correct variables set
         Map<String, Object> caseVariables = runtimeService.getVariables(caseInstance.getId());
-        assertThat(caseVariables).hasSize(7);
 
-        assertThat(caseVariables.get("stringVariable")).isEqualTo("simple string value");
-        assertThat(caseVariables.get("integerVariable")).isEqualTo(1234);
-        assertThat(caseVariables.get("shortVariable")).isEqualTo((short) 123);
-        assertThat(caseVariables.get("longVariable")).isEqualTo(4567890L);
-        assertThat(caseVariables.get("doubleVariable")).isEqualTo(123.456);
-        assertThat(caseVariables.get("booleanVariable")).isEqualTo(Boolean.TRUE);
-        assertThat(caseVariables.get("dateVariable")).isEqualTo(longDateFormat.parse(isoString));
+        assertThat(caseVariables)
+                .containsOnly(
+                        entry("stringVariable", "simple string value"),
+                        entry("integerVariable", 1234),
+                        entry("shortVariable", (short) 123),
+                        entry("longVariable", 4567890L),
+                        entry("doubleVariable", 123.456),
+                        entry("booleanVariable", Boolean.TRUE),
+                        entry("dateVariable", longDateFormat.parse(isoString))
+                );
     }
 
     @CmmnDeployment(resources = { "org/flowable/cmmn/rest/service/api/repository/oneHumanTaskCase.cmmn" })
@@ -500,6 +501,35 @@ public class CaseInstanceCollectionResourceTest extends BaseSpringRestTestCase {
                 formRepositoryService.deleteDeployment(formDeployment.getId(), true);
             }
         }
+    }
+
+    @CmmnDeployment(resources = {
+            "org/flowable/cmmn/rest/service/api/runtime/CaseInstanceCollectionResourceTest.oneHumanTaskCaseTestCategory.cmmn",
+            "org/flowable/cmmn/rest/service/api/runtime/CaseInstanceCollectionResourceTest.oneHumanTaskCaseExampleCategory.cmmn"
+    })
+    public void testGetCaseInstancesByCategory() throws Exception {
+        CaseInstance exampleCase = runtimeService.createCaseInstanceBuilder()
+                .caseDefinitionKey("oneHumanTaskCaseExampleCategory")
+                .businessKey("example")
+                .start();
+        CaseInstance testCase = runtimeService.createCaseInstanceBuilder()
+                .caseDefinitionKey("oneHumanTaskCaseTestCategory")
+                .businessKey("test")
+                .start();
+
+        String exampleCaseId = exampleCase.getId();
+        String testCaseId = testCase.getId();
+
+        // Test without any parameters
+        String url = CmmnRestUrls.createRelativeResourceUrl(CmmnRestUrls.URL_CASE_INSTANCE_COLLECTION);
+        assertResultsPresentInDataResponse(url, testCaseId, exampleCaseId);
+
+        // Case Definition Category
+        url = CmmnRestUrls.createRelativeResourceUrl(CmmnRestUrls.URL_CASE_INSTANCE_COLLECTION) + "?caseDefinitionCategory=Example";
+        assertResultsPresentInDataResponse(url, exampleCaseId);
+
+        url = CmmnRestUrls.createRelativeResourceUrl(CmmnRestUrls.URL_CASE_INSTANCE_COLLECTION) + "?caseDefinitionCategory=Unknown";
+        assertResultsPresentInDataResponse(url);
     }
 
     /**

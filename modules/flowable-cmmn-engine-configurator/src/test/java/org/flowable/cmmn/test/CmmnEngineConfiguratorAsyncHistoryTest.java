@@ -67,7 +67,6 @@ public class CmmnEngineConfiguratorAsyncHistoryTest {
         AsyncExecutor processEngineAsyncExecutor = processEngine.getProcessEngineConfiguration().getAsyncHistoryExecutor();
         AsyncExecutor cmmnEngineAsyncExecutor = cmmnEngine.getCmmnEngineConfiguration().getAsyncHistoryExecutor();
         assertThat(processEngineAsyncExecutor).isNotNull();
-        assertThat(cmmnEngineAsyncExecutor).isNotNull();
         assertThat(cmmnEngineAsyncExecutor).isSameAs(processEngineAsyncExecutor);
 
         // Running them together should have moved the job execution scope to 'all' (from process which is null)
@@ -87,8 +86,8 @@ public class CmmnEngineConfiguratorAsyncHistoryTest {
                 cmmnEngine.getCmmnRuntimeService().createPlanItemInstanceQuery().planItemInstanceState(PlanItemInstanceState.ACTIVE).singleResult().getId());
 
         // As async history is enabled, there should be  no historical entries yet, but there should be history jobs
-        assertThat(cmmnEngine.getCmmnHistoryService().createHistoricCaseInstanceQuery().count()).isEqualTo(0);
-        assertThat(processEngine.getHistoryService().createHistoricProcessInstanceQuery().count()).isEqualTo(0);
+        assertThat(cmmnEngine.getCmmnHistoryService().createHistoricCaseInstanceQuery().count()).isZero();
+        assertThat(processEngine.getHistoryService().createHistoricProcessInstanceQuery().count()).isZero();
 
         // 3 history jobs expected:
         // - one for the case instance start
@@ -120,8 +119,8 @@ public class CmmnEngineConfiguratorAsyncHistoryTest {
 
         assertThat(cmmnEngine.getCmmnHistoryService().createHistoricCaseInstanceQuery().count()).isEqualTo(1);
         assertThat(processEngine.getHistoryService().createHistoricProcessInstanceQuery().count()).isEqualTo(1);
-        assertThat(cmmnEngine.getCmmnManagementService().createHistoryJobQuery().count()).isEqualTo(0);
-        assertThat(processEngine.getManagementService().createHistoryJobQuery().count()).isEqualTo(0);
+        assertThat(cmmnEngine.getCmmnManagementService().createHistoryJobQuery().count()).isZero();
+        assertThat(processEngine.getManagementService().createHistoryJobQuery().count()).isZero();
     }
 
     @Test

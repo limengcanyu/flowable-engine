@@ -18,9 +18,16 @@ import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
+import org.flowable.common.engine.api.delegate.event.FlowableEngineEventType;
+import org.flowable.common.engine.api.delegate.event.FlowableEvent;
+import org.flowable.common.engine.api.delegate.event.FlowableEventListener;
 import org.flowable.common.engine.impl.interceptor.Command;
 import org.flowable.common.engine.impl.interceptor.CommandContext;
 import org.flowable.common.engine.impl.util.CollectionUtil;
@@ -28,6 +35,7 @@ import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.impl.history.async.HistoryJsonConstants;
+import org.flowable.engine.impl.util.CommandContextUtil;
 import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.test.Deployment;
@@ -35,6 +43,7 @@ import org.flowable.engine.test.impl.CustomConfigurationFlowableTestCase;
 import org.flowable.identitylink.api.IdentityLinkType;
 import org.flowable.job.api.HistoryJob;
 import org.flowable.job.api.Job;
+import org.flowable.job.service.JobServiceConfiguration;
 import org.flowable.job.service.impl.asyncexecutor.AbstractAsyncExecutor;
 import org.flowable.job.service.impl.asyncexecutor.ResetExpiredJobsRunnable;
 import org.flowable.job.service.impl.persistence.entity.HistoryJobEntity;
@@ -43,8 +52,14 @@ import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskLogEntry;
 import org.flowable.task.api.history.HistoricTaskLogEntryBuilder;
 import org.flowable.task.api.history.HistoricTaskLogEntryType;
+import org.junit.Assert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
 
@@ -65,6 +80,7 @@ public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
         processEngineConfiguration.setAsyncHistoryExecutorNumberOfRetries(10);
         processEngineConfiguration.setAsyncHistoryExecutorDefaultAsyncJobAcquireWaitTime(100);
         processEngineConfiguration.setAsyncExecutorActivate(false);
+        processEngineConfiguration.setAsyncHistoryExecutorActivate(false);
     }
 
     @AfterEach
@@ -102,6 +118,9 @@ public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
             taskService.complete(taskService.createTaskQuery().singleResult().getId());
 
             List<HistoryJob> jobs = managementService.createHistoryJobQuery().list();
+            for (HistoryJob job : jobs) {
+                assertThat(managementService.getHistoryJobHistoryJson(job.getId())).isNotEmpty();
+            }
 
             int expectedNrOfJobs = 11;
             if (processEngineConfiguration.isAsyncHistoryJsonGroupingEnabled() &&
@@ -142,17 +161,18 @@ public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
             assertThat(historicTaskInstance.getProcessInstanceId()).isNotNull();
             assertThat(historicTaskInstance.getProcessDefinitionId()).isNotNull();
             assertThat(historicTaskInstance.getTaskDefinitionKey()).isNotNull();
-            assertThat(historicTaskInstance.getStartTime()).isNotNull();
+            assertThat(historicTaskInstance.getCreateTime()).isNotNull();
             assertThat(historicTaskInstance.getEndTime()).isNotNull();
             assertThat(historicTaskInstance.getDurationInMillis()).isNotNull();
 
-            List<HistoricActivityInstance> historicActivityInstances = historyService.createHistoricActivityInstanceQuery().processInstanceId(processInstanceId)
+            List<HistoricActivityInstance> historicActivityInstances = historyService.createHistoricActivityInstanceQuery()
+                    .processInstanceId(processInstanceId)
                     .list();
             assertThat(historicActivityInstances).hasSize(5);
             for (HistoricActivityInstance historicActivityInstance : historicActivityInstances) {
                 assertThat(historicActivityInstance.getActivityId()).isNotNull();
                 assertThat(historicActivityInstance.getActivityType()).isNotNull();
-                if (!historicActivityInstance.getActivityType().equals("sequenceFlow")) {
+                if (!"sequenceFlow".equals(historicActivityInstance.getActivityType())) {
                     assertThat(historicActivityInstance.getActivityName()).isNotNull();
                 }
                 assertThat(historicActivityInstance.getProcessDefinitionId()).isNotNull();
@@ -161,6 +181,7 @@ public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
                 assertThat(historicActivityInstance.getDurationInMillis()).isNotNull();
                 assertThat(historicActivityInstance.getStartTime()).isNotNull();
                 assertThat(historicActivityInstance.getEndTime()).isNotNull();
+                assertThat(historicActivityInstance.getTransactionOrder()).isNotNull();
             }
 
             for (String activityId : Arrays.asList("start", "theTask", "theEnd")) {
@@ -586,7 +607,7 @@ public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
         taskService.complete(task.getId());
 
         assertThat(historyService.createHistoricTaskLogEntryQuery().count()).isZero();
-        assertThat(managementService.createHistoryJobQuery().count()).isEqualTo(12l);
+        assertThat(managementService.createHistoryJobQuery().count()).isEqualTo(12);
 
         waitForHistoryJobExecutorToProcessAllJobs(7000, 200);
 
@@ -669,6 +690,219 @@ public class AsyncHistoryTest extends CustomConfigurationFlowableTestCase {
         org.flowable.task.api.Task task = taskService.createTaskQuery().processInstanceId(processInstance.getId()).singleResult();
         assertThat(task).isNotNull();
         assertThat(task.getName()).isEqualTo("Wait2");
+    }
+
+    @Test
+    public void testHistoryJobFailure() {
+        Task task = startOneTaskprocess();
+
+        // Fetch the first history job, and programmatically change the handler type, such that it will guaranteed fail.
+        HistoryJob historyJob = managementService.createHistoryJobQuery().singleResult();
+        changeTransformerTypeToInvalidType((HistoryJobEntity) historyJob);
+
+        assertThat(managementService.createDeadLetterJobQuery().count()).isEqualTo(0);
+        waitForHistoryJobExecutorToProcessAllJobs(20000L, 50L);
+        assertThat(managementService.createHistoryJobQuery().count()).isEqualTo(0);
+
+        Job deadLetterJob = managementService.createDeadLetterJobQuery().singleResult();
+        assertThat(deadLetterJob.getJobType()).isEqualTo(HistoryJobEntity.HISTORY_JOB_TYPE);
+        assertThat(deadLetterJob.getExceptionMessage()).isNotEmpty();
+
+        String deadLetterJobExceptionStacktrace = managementService.getDeadLetterJobExceptionStacktrace(deadLetterJob.getId());
+        assertThat(deadLetterJobExceptionStacktrace).isNotEmpty();
+
+        // The history jobs in the deadletter table have no link to the process instance, hence why a manual cleanup is needed.
+        runtimeService.deleteProcessInstance(task.getProcessInstanceId(), null);
+        managementService.createHistoryJobQuery().list().forEach(j -> managementService.deleteHistoryJob(j.getId()));
+        managementService.createDeadLetterJobQuery().list().forEach(j -> managementService.deleteDeadLetterJob(j.getId()));
+    }
+
+    @Test
+    public void testHistoryJobMissingActivityStart() {
+        Task task = startOneTaskprocess();
+
+        // Removing the 'activity start' will fail both the processing of the starting of the process instance and the setting of the assignee
+        HistoryJob historyJob = managementService.createHistoryJobQuery().singleResult();
+        removeActivityStart((HistoryJobEntity) historyJob, "theTask");
+
+        taskService.complete(task.getId());
+
+        assertThat(managementService.createDeadLetterJobQuery().count()).isEqualTo(0);
+        assertThat(historyService.createHistoricProcessInstanceQuery().list()).isEmpty();
+        assertThat(historyService.createHistoricTaskInstanceQuery().list()).isEmpty();
+        assertThat(historyService.createHistoricActivityInstanceQuery().activityId("theTask").list()).isEmpty();
+        waitForHistoryJobExecutorToProcessAllJobs(20000L, 50L);
+        assertThat(managementService.createDeadLetterJobQuery().count()).isEqualTo(2);
+        assertThat(historyService.createHistoricTaskInstanceQuery().list()).hasSize(1);
+        assertThat(historyService.createHistoricActivityInstanceQuery().activityId("theTask").list()).isEmpty();
+
+        // Even though there are dead letter jobs, only the delta of the jobs needs to be there
+        // the parts that didn't fail should still create the historic process instance
+
+        HistoricProcessInstance historicProcessInstance = historyService.createHistoricProcessInstanceQuery()
+                .singleResult();
+
+        assertThat(historicProcessInstance).isNotNull();
+        assertThat(historicProcessInstance.getEndTime()).isNotNull();
+
+        List<String> exceptionMessages = managementService.createDeadLetterJobQuery().list().stream().map(job -> job.getExceptionMessage()).collect(Collectors.toList());
+        assertThat(exceptionMessages).containsOnly(
+            "Failed to process async history json. See suppressed exceptions.",
+            "Failed to process async history json. See suppressed exceptions."
+        );
+
+        List<String> exceptionStacktraces = managementService.createDeadLetterJobQuery()
+                .list()
+                .stream()
+                .sorted(Comparator.comparing(Job::getCreateTime))
+                .map(job -> managementService.getDeadLetterJobExceptionStacktrace(job.getId()))
+                .collect(Collectors.toList());
+
+        String stackTrace1 = exceptionStacktraces.get(0);
+        if (stackTrace1.contains("[activity-update]")) {
+            assertThat(stackTrace1).contains("Job is not applicable for transformer types: [activity-update]");
+            
+            assertThat(exceptionStacktraces.get(1))
+                .contains("Job is not applicable for transformer types: [activity-end]");
+            
+        } else {
+            assertThat(stackTrace1).contains("Job is not applicable for transformer types: [activity-end]");
+            
+            assertThat(exceptionStacktraces.get(1))
+                .contains("Job is not applicable for transformer types: [activity-update]");
+        }
+
+        // The history jobs in the deadletter table have no link to the process instance, hence why a manual cleanup is needed.
+        managementService.createDeadLetterJobQuery().list().forEach(j -> managementService.deleteDeadLetterJob(j.getId()));
+    }
+
+    @Test
+    public void testMoveDeadLetterJobBackToHistoryJob() {
+        TestDeadletterEventListener testDeadletterEventListener = new TestDeadletterEventListener();
+        processEngineConfiguration.getEventDispatcher().addEventListener(testDeadletterEventListener, FlowableEngineEventType.JOB_MOVED_TO_DEADLETTER);
+
+        Task task = startOneTaskprocess();
+
+        HistoryJob historyJob = managementService.createHistoryJobQuery().singleResult();
+        changeTransformerTypeToInvalidType((HistoryJobEntity) historyJob);
+
+        String originalAdvancedConfiguration = getAdvancedJobHandlerConfiguration(historyJob.getId());
+        assertThat(originalAdvancedConfiguration).isNotEmpty();
+        assertThat(TestDeadletterEventListener.COUNTER.get()).isEqualTo(0);
+
+        waitForHistoryJobExecutorToProcessAllJobs(20000L, 50L);
+
+        assertThat(managementService.createHistoryJobQuery().count()).isEqualTo(0);
+        Job deadLetterJob = managementService.createDeadLetterJobQuery().singleResult();
+        assertThat(TestDeadletterEventListener.COUNTER.get()).isEqualTo(1);
+
+        managementService.moveDeadLetterJobToHistoryJob(deadLetterJob.getId(), 3);
+        assertThat(managementService.createHistoryJobQuery().count()).isEqualTo(1);
+        historyJob = managementService.createHistoryJobQuery().singleResult();
+
+        assertThat(historyJob.getCreateTime()).isNotNull();
+        assertThat(historyJob.getRetries()).isEqualTo(3);
+        assertThat(historyJob.getExceptionMessage()).isNotNull(); // this is consistent with regular jobs
+        assertThat(historyJob.getJobHandlerConfiguration()).isNull(); // needs to have been reset
+
+        String newAdvancedConfiguration = getAdvancedJobHandlerConfiguration(historyJob.getId());
+        assertThat(originalAdvancedConfiguration).isEqualTo(newAdvancedConfiguration);
+
+        // The history jobs in the deadletter table have no link to the process instance, hence why a manual cleanup is needed.
+        runtimeService.deleteProcessInstance(task.getProcessInstanceId(), null);
+        managementService.createHistoryJobQuery().list().forEach(j -> managementService.deleteHistoryJob(j.getId()));
+        managementService.createDeadLetterJobQuery().list().forEach(j -> managementService.deleteDeadLetterJob(j.getId()));
+
+        assertThat(TestDeadletterEventListener.COUNTER.get()).isEqualTo(1);
+        processEngineConfiguration.getEventDispatcher().removeEventListener(testDeadletterEventListener);
+    }
+
+    static final class TestDeadletterEventListener implements FlowableEventListener {
+
+        public static AtomicInteger COUNTER = new AtomicInteger(0);
+
+        @Override
+        public void onEvent(FlowableEvent event) {
+            COUNTER.incrementAndGet();
+        }
+        @Override
+        public boolean isFailOnException() {
+            return false;
+        }
+        @Override
+        public boolean isFireOnTransactionLifecycleEvent() {
+            return false;
+        }
+        @Override
+        public String getOnTransaction() {
+            return null;
+        }
+    }
+
+    protected void changeTransformerTypeToInvalidType(HistoryJobEntity historyJob) {
+        processEngineConfiguration.getCommandExecutor().execute(new Command<Void>() {
+
+            @Override
+            public Void execute(CommandContext commandContext) {
+                try {
+                    HistoryJobEntity historyJobEntity = historyJob;
+
+                    ObjectMapper objectMapper = processEngineConfiguration.getObjectMapper();
+                    JsonNode historyJsonNode = objectMapper.readTree(historyJobEntity.getAdvancedJobHandlerConfiguration());
+
+                    for (JsonNode jsonNode : historyJsonNode) {
+                        if (jsonNode.has("type")) {
+                            ((ObjectNode) jsonNode).put("type", "invalidType");
+                        }
+                    }
+
+                    historyJobEntity.setAdvancedJobHandlerConfiguration(objectMapper.writeValueAsString(historyJsonNode));
+                } catch (JsonProcessingException e) {
+                    Assert.fail();
+                }
+                return null;
+            }
+        });
+    }
+
+    protected void removeActivityStart(HistoryJobEntity historyJob, String activityId) {
+        processEngineConfiguration.getCommandExecutor().execute(new Command<Void>() {
+
+            @Override
+            public Void execute(CommandContext commandContext) {
+                try {
+                    HistoryJobEntity historyJobEntity = historyJob;
+
+                    ObjectMapper objectMapper = processEngineConfiguration.getObjectMapper();
+                    JsonNode historyJsonNode = objectMapper.readTree(historyJobEntity.getAdvancedJobHandlerConfiguration());
+
+                    Iterator<JsonNode> iterator = historyJsonNode.iterator();
+                    while (iterator.hasNext()) {
+                        JsonNode jsonNode = iterator.next();
+                        if (jsonNode.path("data").path("activityId").asText().equals(activityId)) {
+                            iterator.remove();
+                        }
+                    }
+
+                    historyJobEntity.setAdvancedJobHandlerConfiguration(objectMapper.writeValueAsString(historyJsonNode));
+                } catch (JsonProcessingException e) {
+                    Assert.fail();
+                }
+                return null;
+            }
+        });
+    }
+
+    protected String getAdvancedJobHandlerConfiguration(String historyJobId) {
+        return processEngineConfiguration.getCommandExecutor().execute(new Command<String>() {
+
+            @Override
+            public String execute(CommandContext commandContext) {
+                JobServiceConfiguration jobServiceConfiguration = CommandContextUtil.getProcessEngineConfiguration(commandContext).getJobServiceConfiguration();
+                HistoryJobEntity job = jobServiceConfiguration.getHistoryJobEntityManager().findById(historyJobId);
+                return job.getAdvancedJobHandlerConfiguration();
+            }
+        });
     }
 
     protected Task startOneTaskprocess() {

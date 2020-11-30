@@ -67,10 +67,6 @@ public class TaskVariableResourceTest extends BaseSpringRestTestCase {
             JsonNode responseNode = objectMapper.readTree(response.getEntity().getContent());
             closeResponse(response);
             assertThat(responseNode).isNotNull();
-            assertThat(responseNode.get("scope").asText()).isEqualTo("local");
-            assertThat(responseNode.get("value").asText()).isEqualTo("localValue");
-            assertThat(responseNode.get("name").asText()).isEqualTo("localTaskVariable");
-            assertThat(responseNode.get("type").asText()).isEqualTo("string");
             assertThatJson(responseNode)
                     .when(Option.IGNORING_EXTRA_FIELDS)
                     .isEqualTo("{"
@@ -205,7 +201,6 @@ public class TaskVariableResourceTest extends BaseSpringRestTestCase {
             // Read the serializable from the stream
             ObjectInputStream stream = new ObjectInputStream(response.getEntity().getContent());
             Object readSerializable = stream.readObject();
-            assertThat(readSerializable).isNotNull();
             assertThat(readSerializable).isInstanceOf(TestSerializableVariable.class);
             assertThat(((TestSerializableVariable) readSerializable).getSomeField()).isEqualTo("This is some field");
             assertThat(response.getEntity().getContentType().getValue()).isEqualTo("application/x-java-serialized-object");
@@ -288,8 +283,7 @@ public class TaskVariableResourceTest extends BaseSpringRestTestCase {
 
         assertThat(taskService.hasVariable(task.getId(), "overlappingVariable")).isFalse();
 
-        // Run the same delete again, variable is not there so 404 should be
-        // returned
+        // Run the same delete again, variable is not there so 404 should be returned
         closeResponse(executeRequest(httpDelete, HttpStatus.SC_NOT_FOUND));
     }
 
@@ -424,7 +418,6 @@ public class TaskVariableResourceTest extends BaseSpringRestTestCase {
 
             // Check actual value of variable in engine
             Object variableValue = taskService.getVariableLocal(task.getId(), "binaryVariable");
-            assertThat(variableValue).isNotNull();
             assertThat(variableValue).isInstanceOf(byte[].class);
             assertThat(new String((byte[]) variableValue)).isEqualTo("This is binary content");
 

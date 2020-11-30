@@ -27,8 +27,8 @@ public class DefaultEventRegistryDataChangeDetectorTest extends AbstractFlowable
     @Test
     public void testExecutorServiceAndRunnableCreated() {
         assertThat(eventRegistryEngine.getEventRegistryEngineConfiguration().getEventRegistryChangeDetectionManager()).isNotNull();
-        EventRegistryChangeDetectionExecutor eventRegistryChangeDetectionExecutor = eventRegistryEngine.getEventRegistryEngineConfiguration().getEventRegistryChangeDetectionExecutor();
-        assertThat(eventRegistryChangeDetectionExecutor).isNotNull();
+        EventRegistryChangeDetectionExecutor eventRegistryChangeDetectionExecutor = eventRegistryEngine.getEventRegistryEngineConfiguration()
+                .getEventRegistryChangeDetectionExecutor();
         assertThat(eventRegistryChangeDetectionExecutor).isInstanceOf(DefaultEventRegistryChangeDetectionExecutor.class);
 
         DefaultEventRegistryChangeDetectionExecutor executor = (DefaultEventRegistryChangeDetectionExecutor) eventRegistryChangeDetectionExecutor;

@@ -12,10 +12,8 @@
  */
 package org.flowable.engine.impl.agenda;
 
-import org.flowable.bpmn.model.BoundaryEvent;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.FlowNode;
-import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.common.engine.api.FlowableException;
 import org.flowable.common.engine.impl.interceptor.CommandContext;
 import org.flowable.engine.impl.delegate.ActivityBehavior;
@@ -59,7 +57,7 @@ public class TriggerExecutionOperation extends AbstractOperation {
                     ((TriggerableActivityBehavior) activityBehavior).trigger(execution, null, null);
                     
                 } else {
-                    JobService jobService = CommandContextUtil.getJobService();
+                    JobService jobService = CommandContextUtil.getJobService(commandContext);
                     JobEntity job = jobService.createJob();
                     job.setExecutionId(execution.getId());
                     job.setProcessInstanceId(execution.getProcessInstanceId());

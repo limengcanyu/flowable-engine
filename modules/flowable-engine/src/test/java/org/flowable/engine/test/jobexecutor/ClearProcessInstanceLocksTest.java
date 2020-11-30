@@ -23,7 +23,6 @@ import org.flowable.engine.impl.persistence.entity.ExecutionEntity;
 import org.flowable.engine.impl.test.PluggableFlowableTestCase;
 import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.test.Deployment;
-import org.flowable.job.api.ExternalWorkerJob;
 import org.flowable.job.api.Job;
 import org.flowable.job.service.impl.asyncexecutor.AcquiredJobEntities;
 import org.flowable.job.service.impl.cmd.AcquireJobsCmd;
@@ -95,10 +94,9 @@ public class ClearProcessInstanceLocksTest extends PluggableFlowableTestCase {
         for (JobInfoEntity acquiredJob : acquiredJobs) {
 
             // Mimic the async executor
-            processEngineConfiguration.getCommandExecutor().execute(new LockExclusiveJobCmd((Job) acquiredJob));
+            processEngineConfiguration.getCommandExecutor().execute(new LockExclusiveJobCmd((Job) acquiredJob, processEngineConfiguration.getJobServiceConfiguration()));
 
             // After locking, the lockowner should be shared by the job and the process instance
-            assertThat(acquiredJob.getLockOwner()).isNotNull();
             assertThat(acquiredJob.getLockOwner()).isEqualTo(processEngineConfiguration.getAsyncExecutor().getLockOwner());
             assertThat(acquiredJob.getLockExpirationTime()).isNotNull();
 

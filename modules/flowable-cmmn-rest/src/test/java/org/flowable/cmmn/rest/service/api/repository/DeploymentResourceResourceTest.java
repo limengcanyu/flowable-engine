@@ -60,10 +60,10 @@ public class DeploymentResourceResourceTest extends BaseSpringRestTestCase {
             assertThatJson(responseNode)
                     .when(Option.IGNORING_EXTRA_FIELDS)
                     .isEqualTo("{"
-                            + " 'url': '" + buildUrl(CmmnRestUrls.URL_DEPLOYMENT_RESOURCE, deployment.getId(), rawResourceName) + "',"
-                            + " 'contentUrl': '" + buildUrl(CmmnRestUrls.URL_DEPLOYMENT_RESOURCE_CONTENT, deployment.getId(), rawResourceName) + "',"
-                            + " 'mediaType': 'text/xml',"
-                            + " 'type': 'caseDefinition'"
+                            + " url: '" + buildUrl(CmmnRestUrls.URL_DEPLOYMENT_RESOURCE, deployment.getId(), rawResourceName) + "',"
+                            + " contentUrl: '" + buildUrl(CmmnRestUrls.URL_DEPLOYMENT_RESOURCE_CONTENT, deployment.getId(), rawResourceName) + "',"
+                            + " mediaType: 'text/xml',"
+                            + " type: 'caseDefinition'"
                             + "}");
 
         } finally {
@@ -121,7 +121,6 @@ public class DeploymentResourceResourceTest extends BaseSpringRestTestCase {
             CloseableHttpResponse response = executeRequest(httpGet, HttpStatus.SC_OK);
             String responseAsString = IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8);
             closeResponse(response);
-            assertThat(responseAsString).isNotNull();
             assertThat(responseAsString).isEqualTo("Test content");
 
         } finally {

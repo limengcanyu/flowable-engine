@@ -26,17 +26,16 @@ import org.flowable.common.engine.api.FlowableException;
 import org.flowable.common.engine.api.FlowableOptimisticLockingException;
 import org.flowable.common.engine.impl.interceptor.Command;
 import org.flowable.common.engine.impl.interceptor.CommandConfig;
-import org.flowable.common.engine.impl.interceptor.CommandContext;
 import org.flowable.common.engine.impl.interceptor.CommandExecutor;
 import org.flowable.engine.impl.cfg.DefaultInternalJobManager;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.impl.interceptor.CommandInvoker;
 import org.flowable.engine.impl.util.CommandContextUtil;
 import org.flowable.job.api.Job;
+import org.flowable.job.service.TimerJobService;
 import org.flowable.job.service.impl.asyncexecutor.AcquireTimerJobsRunnable;
 import org.flowable.job.service.impl.asyncexecutor.AsyncExecutor;
 import org.flowable.job.service.impl.cmd.AcquireTimerJobsCmd;
-import org.flowable.job.service.impl.cmd.MoveTimerJobsToExecutableJobsCmd;
 import org.flowable.job.service.impl.cmd.UnlockTimerJobsCmd;
 import org.flowable.job.service.impl.persistence.entity.JobEntity;
 import org.flowable.job.service.impl.persistence.entity.TimerJobEntity;
@@ -71,7 +70,8 @@ class AcquireTimerJobsMoveFailsTest extends JobExecutorTestCase {
 
         String jobId = commandExecutor.execute(commandContext -> {
             TimerJobEntity timer = createTweetTimer("i'm coding a test", Date.from(now.plusSeconds(10)));
-            CommandContextUtil.getTimerJobService(commandContext).scheduleTimerJob(timer);
+            TimerJobService timerJobService = CommandContextUtil.getProcessEngineConfiguration(commandContext).getJobServiceConfiguration().getTimerJobService();
+            timerJobService.scheduleTimerJob(timer);
             return timer.getId();
         });
 
@@ -116,7 +116,8 @@ class AcquireTimerJobsMoveFailsTest extends JobExecutorTestCase {
 
         String jobId = commandExecutor.execute(commandContext -> {
             TimerJobEntity timer = createTweetTimer("i'm coding a test", Date.from(now.plusSeconds(10)));
-            CommandContextUtil.getTimerJobService(commandContext).scheduleTimerJob(timer);
+            TimerJobService timerJobService = CommandContextUtil.getProcessEngineConfiguration(commandContext).getJobServiceConfiguration().getTimerJobService();
+            timerJobService.scheduleTimerJob(timer);
             return timer.getId();
         });
 
@@ -155,10 +156,14 @@ class AcquireTimerJobsMoveFailsTest extends JobExecutorTestCase {
         protected CountDownLatch acquireJobLatch;
         protected CountDownLatch unlockJobLatch;
 
-        @Override
-        public <T> T execute(CommandConfig config, Command<T> command) {
+        public CustomWaitCommandInvoker() {
+            super((commandContext, runnable) -> runnable.run());
+        }
 
-            T result = super.execute(config, command);
+        @Override
+        public <T> T execute(CommandConfig config, Command<T> command, CommandExecutor commandExecutor) {
+
+            T result = super.execute(config, command, commandExecutor);
 
             if (command instanceof AcquireTimerJobsCmd) {
                 acquireJobLatch.countDown();

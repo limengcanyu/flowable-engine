@@ -12,8 +12,6 @@
  */
 package org.flowable.cmmn.engine.impl.agenda.operation;
 
-import java.util.Map;
-
 import org.flowable.cmmn.api.runtime.PlanItemInstanceState;
 import org.flowable.cmmn.engine.impl.behavior.CmmnActivityBehavior;
 import org.flowable.cmmn.engine.impl.behavior.CmmnActivityWithMigrationContextBehavior;
@@ -31,7 +29,7 @@ import org.flowable.common.engine.impl.interceptor.CommandContext;
 public class StartPlanItemInstanceOperation extends AbstractChangePlanItemInstanceStateOperation {
 
     protected String entryCriterionId;
-    protected Map<String, Object> variables;
+    protected ChildTaskActivityBehavior.VariableInfo childTaskVariableInfo;
     protected MigrationContext migrationContext;
     
     public StartPlanItemInstanceOperation(CommandContext commandContext, PlanItemInstanceEntity planItemInstanceEntity, String entryCriterionId) {
@@ -40,10 +38,10 @@ public class StartPlanItemInstanceOperation extends AbstractChangePlanItemInstan
     }
     
     public StartPlanItemInstanceOperation(CommandContext commandContext, PlanItemInstanceEntity planItemInstanceEntity, 
-                    String entryCriterionId, Map<String, Object> variables) {
+                    String entryCriterionId, ChildTaskActivityBehavior.VariableInfo childTaskVariableInfo) {
         
         this(commandContext, planItemInstanceEntity, entryCriterionId);
-        this.variables = variables;
+        this.childTaskVariableInfo = childTaskVariableInfo;
     }
     
     public StartPlanItemInstanceOperation(CommandContext commandContext, PlanItemInstanceEntity planItemInstanceEntity, 
@@ -54,12 +52,12 @@ public class StartPlanItemInstanceOperation extends AbstractChangePlanItemInstan
     }
     
     @Override
-    protected String getNewState() {
+    public String getNewState() {
         return PlanItemInstanceState.ACTIVE;
     }
     
     @Override
-    protected String getLifeCycleTransition() {
+    public String getLifeCycleTransition() {
         return PlanItemTransition.START;
     }
     
@@ -70,8 +68,8 @@ public class StartPlanItemInstanceOperation extends AbstractChangePlanItemInstan
 
         planItemInstanceEntity.setEntryCriterionId(entryCriterionId);
         planItemInstanceEntity.setLastStartedTime(getCurrentTime(commandContext));
-        CommandContextUtil.getCmmnHistoryManager(commandContext).recordPlanItemInstanceStarted(planItemInstanceEntity);
         executeActivityBehavior();
+        CommandContextUtil.getCmmnHistoryManager(commandContext).recordPlanItemInstanceStarted(planItemInstanceEntity);
     }
 
     protected void executeActivityBehavior() {
@@ -80,7 +78,7 @@ public class StartPlanItemInstanceOperation extends AbstractChangePlanItemInstan
             ((CmmnActivityWithMigrationContextBehavior) activityBehavior).execute(commandContext, planItemInstanceEntity, migrationContext);
             
         } else if (activityBehavior instanceof ChildTaskActivityBehavior) {
-            ((ChildTaskActivityBehavior) activityBehavior).execute(commandContext, planItemInstanceEntity, variables);
+            ((ChildTaskActivityBehavior) activityBehavior).execute(commandContext, planItemInstanceEntity, childTaskVariableInfo);
             
         } else if (activityBehavior instanceof CoreCmmnActivityBehavior) {
             ((CoreCmmnActivityBehavior) activityBehavior).execute(commandContext, planItemInstanceEntity);
@@ -91,7 +89,7 @@ public class StartPlanItemInstanceOperation extends AbstractChangePlanItemInstan
     }
 
     @Override
-    protected String getOperationName() {
+    public String getOperationName() {
         return "[Start plan item]";
     }
     

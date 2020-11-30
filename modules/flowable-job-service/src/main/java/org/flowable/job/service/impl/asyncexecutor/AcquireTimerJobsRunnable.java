@@ -17,8 +17,6 @@ import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.flowable.common.engine.api.FlowableOptimisticLockingException;
-import org.flowable.common.engine.impl.interceptor.Command;
-import org.flowable.common.engine.impl.interceptor.CommandContext;
 import org.flowable.common.engine.impl.interceptor.CommandExecutor;
 import org.flowable.job.service.impl.cmd.AcquireTimerJobsCmd;
 import org.flowable.job.service.impl.cmd.MoveTimerJobsToExecutableJobsCmd;
@@ -123,7 +121,7 @@ public class AcquireTimerJobsRunnable implements Runnable {
     protected void unlockTimerJobs(CommandExecutor commandExecutor, Collection<TimerJobEntity> timerJobs) {
         try {
             if (!timerJobs.isEmpty()) {
-                commandExecutor.execute(new UnlockTimerJobsCmd(timerJobs));
+                commandExecutor.execute(new UnlockTimerJobsCmd(timerJobs, asyncExecutor.getJobServiceConfiguration()));
             }
         } catch (Throwable e) {
             if (LOGGER.isDebugEnabled()) {
